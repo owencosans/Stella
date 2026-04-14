@@ -191,6 +191,7 @@ def build_iri(scenario: str) -> pd.DataFrame:
         # Compute category totals
         cat_units = sum(brand_sku_units.values())
 
+        # Compute market shares (IRI_MULT cancels in the ratio, so computed at retailer scale)
         sku_dollar = {}
         cat_dollars = 0.0
         for brand in ALL_BRANDS:
@@ -199,7 +200,7 @@ def build_iri(scenario: str) -> pd.DataFrame:
                 price -= TPR_PER_UNIT
             for sku in SKUS[brand]:
                 u = brand_sku_units[(brand, sku)]
-                d = u * price * IRI_MULT
+                d = u * price
                 sku_dollar[(brand, sku)] = d
                 cat_dollars += d
 
@@ -221,12 +222,16 @@ def build_iri(scenario: str) -> pd.DataFrame:
 
                 any_promo = 1 if (brand == PROMOTED_BRAND and phase == "promo") else 0
 
+                # Store dollar_sales and unit_sales at retailer scale (not IRI total market).
+                # market_share_* are pre-computed correctly above; avg_net_price is stored
+                # directly as price. The cross-source volume check in ingestion.py compares
+                # IRI unit_sales to POS unit_sales, so both must be at the same scale.
                 rows.append({
                     "week_ending":          date,
                     "brand":                brand,
                     "sku":                  sku,
                     "dollar_sales":         round(d_sales, 2),
-                    "unit_sales":           round(units * IRI_MULT, 1),
+                    "unit_sales":           round(units, 1),
                     "avg_net_price":        round(price, 2),
                     "market_share_dollars": round(ms_d, 4),
                     "market_share_units":   round(ms_u, 4),
