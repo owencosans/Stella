@@ -117,8 +117,10 @@ def build_iri(scenario: str) -> pd.DataFrame:
                     if brand == "Summit Foods":
                         post_offset = w - 8  # 1..8
                         if scenario == "strong_promo":
-                            factors = {1: 0.85, 2: 0.85, 3: 0.90, 4: 0.90,
-                                       5: 0.98, 6: 0.98, 7: 0.98, 8: 0.98}
+                            # Early post: typical pantry payback dip.
+                            # Late post: slightly above baseline — switchers who stayed loyal.
+                            factors = {1: 0.85, 2: 0.85, 3: 0.90, 4: 0.95,
+                                       5: 1.05, 6: 1.05, 7: 1.05, 8: 1.05}
                         elif scenario == "pantry_loaded":
                             factors = {1: 0.68, 2: 0.68, 3: 0.68, 4: 0.68,
                                        5: 0.80, 6: 0.80, 7: 0.90, 8: 0.90}
@@ -127,7 +129,14 @@ def build_iri(scenario: str) -> pd.DataFrame:
                                        5: 0.80, 6: 0.80, 7: 0.80, 8: 0.80}
                         mult = factors[post_offset]
                     else:
-                        mult = 1.0  # competitors normalise
+                        # Competitors: for strong_promo, some buyers permanently switched
+                        # to Summit in late post — show modest persistent share loss.
+                        if scenario == "strong_promo":
+                            post_offset = w - 8
+                            comp_mult = 0.94 if post_offset >= 5 else 1.0
+                        else:
+                            comp_mult = 1.0
+                        mult = comp_mult
 
                 units = base * mult * float(noise(1)[0])
                 brand_units[brand][sku] = units
@@ -223,8 +232,9 @@ def build_pos(scenario: str) -> pd.DataFrame:
                     if brand == "Summit Foods":
                         post_offset = w - 8
                         if scenario == "strong_promo":
-                            factors = {1: 0.85, 2: 0.85, 3: 0.90, 4: 0.90,
-                                       5: 0.98, 6: 0.98, 7: 0.98, 8: 0.98}
+                            # Late post above baseline: retained switchers buy again.
+                            factors = {1: 0.85, 2: 0.85, 3: 0.90, 4: 0.95,
+                                       5: 1.05, 6: 1.05, 7: 1.05, 8: 1.05}
                         elif scenario == "pantry_loaded":
                             factors = {1: 0.68, 2: 0.68, 3: 0.68, 4: 0.68,
                                        5: 0.80, 6: 0.80, 7: 0.90, 8: 0.90}
@@ -327,8 +337,8 @@ def build_stars(scenario: str) -> pd.DataFrame:
             else:
                 post_offset = w - 8
                 if scenario == "strong_promo":
-                    fm = {1: 0.85, 2: 0.85, 3: 0.90, 4: 0.90,
-                          5: 0.98, 6: 0.98, 7: 0.98, 8: 0.98}
+                    fm = {1: 0.85, 2: 0.85, 3: 0.90, 4: 0.95,
+                          5: 1.05, 6: 1.05, 7: 1.05, 8: 1.05}
                 elif scenario == "pantry_loaded":
                     fm = {1: 0.68, 2: 0.68, 3: 0.68, 4: 0.68,
                           5: 0.80, 6: 0.80, 7: 0.90, 8: 0.90}

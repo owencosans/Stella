@@ -94,7 +94,9 @@ def grade_from_score(score: float) -> str:
 
 
 def roi_score(roi: float) -> float:
-    """0–100. ROI >= 1.5 → 100; <= 0 → 0; linear between."""
+    """0–100. ROI >= 1.5 → 100; <= 0 → 0; linear between.
+    NOTE: The 1.5 top-end threshold is configurable — for shallow TPRs a 0.28 ROI
+    may be typical. Consider lowering to ~0.8 after seeing calibrated real data."""
     if roi >= 1.5:
         return 100.0
     elif roi <= 0:
@@ -106,16 +108,26 @@ def roi_score(roi: float) -> float:
 def share_score(share_gain_pp: float, share_retention: float | None) -> float:
     """
     0–100. Share gain >= 2pp → 100; <= 0 → 0; linear.
-    Multiply by min(share_retention, 1.0). If N/A (None), multiply by 0.5.
+
+    Retention adjusts the base score:
+      - None (no post-promo data): multiply by 0.5
+      - >= 0 (share held at or above baseline after promo): no penalty — returning
+        to baseline is a healthy TPR outcome, not a failure
+      - < 0 (share dropped below baseline post-promo): apply penalty
+        score = base × max(0, 1 + retention)
+
+    This prevents the score from collapsing to 0 when a promotion does its job
+    (lifts share temporarily) but doesn't permanently move the needle.
     """
     if share_gain_pp <= 0:
         return 0.0
     base = min(share_gain_pp / 2.0, 1.0) * 100.0
     if share_retention is None:
-        multiplier = 0.5
+        return base * 0.5
+    elif share_retention >= 0.0:
+        return base  # full credit; share held at or above baseline
     else:
-        multiplier = min(share_retention, 1.0)
-    return base * multiplier
+        return base * max(0.0, 1.0 + share_retention)
 
 
 def volume_score(net_incr_pct: float, pantry_loading_index: float) -> float:
@@ -236,6 +248,12 @@ def compute_recommendation(
         rationale = [
             "Volume, economics, and sourcing all support re-execution.",
             "Maintain current TPR depth and promo duration.",
+        ]
+    elif grade == "B" and sourcing_label == "High Quality" and inventory_risk == "Low":
+        primary = "Repeat with similar mechanics."
+        rationale = [
+            "Sourcing quality and volume lift support re-execution.",
+            "Monitor ROI and adjust TPR depth as more data accumulates.",
         ]
     elif grade in ("A", "B") and inventory_risk in ("Moderate", "High"):
         primary = "Repeat only with tighter inventory controls."

@@ -141,8 +141,10 @@ def calculate_kpis(
     net_incr_volume = gross_incr_volume - post_promo_deficit
 
     # Baseline window total for volume score denominator
-    # = baseline weekly units × total window weeks
-    baseline_window_total = bwu * n_total
+    # = baseline weekly units × promo weeks only
+    # Measures: "how much MORE did we sell during the promo vs. what we would have sold?"
+    # Net incremental >= 20% of that baseline-equivalent = 100.
+    baseline_window_total = bwu * n_promo
     net_incr_pct = (net_incr_volume / baseline_window_total * 100.0) if baseline_window_total > 0 else 0.0
 
     actual_volume_multiplier = (promo_units_total / baseline_equiv_units) if baseline_equiv_units > 0 else 0.0

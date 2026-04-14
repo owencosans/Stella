@@ -142,10 +142,14 @@ def chart_market_share(
     pre_weeks: list,
     post_weeks: list,
     color_map: dict,
+    share_col: str = "market_share_dollars",
 ) -> tuple:
-    """Returns (fig_stacked_area, fig_share_change)."""
+    """Returns (fig_stacked_area, fig_share_change). share_col: 'market_share_dollars' or 'market_share_units'."""
 
-    weekly_share = iri.groupby(["week_ending", "brand"])["market_share_dollars"].sum().reset_index()
+    share_label = "Dollar Share (%)" if share_col == "market_share_dollars" else "Volume Share (%)"
+    share_title_prefix = "Dollar" if share_col == "market_share_dollars" else "Volume"
+
+    weekly_share = iri.groupby(["week_ending", "brand"])[share_col].sum().reset_index()
 
     # Chart A: Stacked area
     fig_a = go.Figure()
@@ -154,7 +158,7 @@ def chart_market_share(
         bdata = weekly_share[weekly_share["brand"] == brand].sort_values("week_ending")
         fig_a.add_trace(go.Scatter(
             x=bdata["week_ending"],
-            y=bdata["market_share_dollars"] * 100,
+            y=bdata[share_col] * 100,
             name=brand,
             mode="lines",
             stackgroup="one",
@@ -163,8 +167,8 @@ def chart_market_share(
         ))
     fig_a.update_layout(
         shapes=period_shapes(promo_weeks),
-        title="Dollar Share by Brand — Weekly (IRI)",
-        yaxis_title="Dollar Share (%)",
+        title=f"{share_title_prefix} Share by Brand — Weekly (IRI)",
+        yaxis_title=share_label,
         xaxis_title="Week Ending",
         **LAYOUT_DEFAULTS,
     )
@@ -172,11 +176,11 @@ def chart_market_share(
     # Chart B: Share change bar
     pre_share = (
         iri[iri["week_ending"].isin(pre_weeks)]
-        .groupby("brand")["market_share_dollars"].mean()
+        .groupby("brand")[share_col].mean()
     )
     promo_share = (
         iri[iri["week_ending"].isin(promo_weeks)]
-        .groupby("brand")["market_share_dollars"].mean()
+        .groupby("brand")[share_col].mean()
     )
     share_chg = ((promo_share - pre_share) * 100).reset_index()
     share_chg.columns = ["brand", "share_change_pp"]
@@ -192,7 +196,7 @@ def chart_market_share(
         textposition="outside",
     ))
     fig_b.update_layout(
-        title="Dollar Share Change: Promo Period vs. Pre-Promo Baseline",
+        title=f"{share_title_prefix} Share Change: Promo Period vs. Pre-Promo Baseline",
         yaxis_title="Share Change (pp)",
         xaxis_title="Brand",
         **LAYOUT_DEFAULTS,

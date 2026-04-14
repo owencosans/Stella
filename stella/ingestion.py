@@ -130,11 +130,13 @@ def check_loyalty_sums(pos: pd.DataFrame, promoted_brand: str) -> list[str]:
     pb_pos = pb_pos.dropna(subset=lid_cols)
     if pb_pos.empty:
         return warnings
-    weekly_sums = pb_pos.groupby("week_ending")[lid_cols].sum().sum(axis=1)
-    bad = weekly_sums[abs(weekly_sums - 1.0) > 0.02]
-    if not bad.empty:
+    # Check per-row (each SKU row must sum to 1.0, not the weekly aggregate)
+    row_sums = pb_pos[lid_cols].sum(axis=1)
+    bad_rows = row_sums[abs(row_sums - 1.0) > 0.03]
+    if not bad_rows.empty:
+        n_bad_weeks = pb_pos.loc[bad_rows.index, "week_ending"].nunique()
         warnings.append(
-            f"loyalty_pct columns don't sum to 1.0 (±0.02) in {len(bad)} week(s) for {promoted_brand}. Will normalize."
+            f"loyalty_pct columns don't sum to 1.0 (±0.03) in {n_bad_weeks} week(s) for {promoted_brand}. Will normalize."
         )
     return warnings
 
@@ -251,17 +253,17 @@ def load_and_validate(iri_file, pos_file, stars_file) -> dict:
     try:
         stars = pd.read_excel(stars_file)
     except Exception as e:
-        critical.append(f"**STAR file**: Could not read file: {e}")
+        critical.append(f"**STARS file**: Could not read file: {e}")
         result["critical_errors"] = critical
         return result
 
     # ── Schema validation ──
     critical += validate_schema(iri, IRI_COLUMNS, "IRI")
     critical += validate_schema(pos, POS_COLUMNS, "POS")
-    critical += validate_schema(stars, STAR_COLUMNS, "STAR")
+    critical += validate_schema(stars, STAR_COLUMNS, "STARS")
     warnings += validate_schema_warnings(iri, IRI_COLUMNS, "IRI")
     warnings += validate_schema_warnings(pos, POS_COLUMNS, "POS")
-    warnings += validate_schema_warnings(stars, STAR_COLUMNS, "STAR")
+    warnings += validate_schema_warnings(stars, STAR_COLUMNS, "STARS")
 
     if critical:
         result["critical_errors"] = critical

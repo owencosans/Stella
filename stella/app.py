@@ -85,7 +85,7 @@ with st.sidebar:
     st.header("📁 Data Input")
     iri_file = st.file_uploader("IRI Data (syndicated)", type="xlsx", key="iri")
     pos_file = st.file_uploader("POS Data (retail scan)", type="xlsx", key="pos")
-    stars_file = st.file_uploader("STAR Data (shipments)", type="xlsx", key="stars")
+    stars_file = st.file_uploader("STARS Data (shipments)", type="xlsx", key="stars")
 
     st.divider()
     st.header("📋 Promotion Context")
@@ -168,7 +168,7 @@ if not all_uploaded:
     **Data required:**
     - `iri_data.xlsx` — Syndicated scanner data (IRI/Circana), all brands, all weeks
     - `pos_data.xlsx` — Retailer point-of-sale scan data with loyalty sourcing (LID)
-    - `stars_data.xlsx` — Wholesale shipment data (STAR), promoted brand only
+    - `stars_data.xlsx` — Wholesale shipment data (STARS), promoted brand only
     """)
     st.stop()
 
@@ -184,10 +184,11 @@ if validated["critical_errors"]:
         st.error(err)
     st.stop()
 
-# Warnings
+# Warnings — tucked into an expander so they don't dominate the first view
 if validated["warnings"]:
-    for w in validated["warnings"]:
-        st.warning(w)
+    with st.expander(f"Data Validation Notes ({len(validated['warnings'])} notice(s))", expanded=False):
+        for w in validated["warnings"]:
+            st.warning(w)
 
 iri = validated["iri"]
 pos = validated["pos"]
@@ -367,9 +368,9 @@ with tabs[0]:
 
     st.divider()
 
-    # Narrative
+    # Narrative — escape $ to prevent Streamlit/KaTeX treating them as LaTeX delimiters
     st.markdown("#### Analysis")
-    st.markdown(narrative_text)
+    st.markdown(narrative_text.replace("$", r"\$"))
 
     # LLM expander
     with st.expander("🤖 Generate AI Deep Dive"):
@@ -394,8 +395,10 @@ with tabs[1]:
 # ─────────────────────────────────────────────────────────────────────────────
 with tabs[2]:
     st.subheader("Market Share")
+    share_type = st.radio("Share metric", ["Dollar Share", "Volume Share"], horizontal=True)
+    share_col = "market_share_dollars" if share_type == "Dollar Share" else "market_share_units"
     fig_share_a, fig_share_b = chart_market_share(
-        iri, promoted_brand, promo_weeks, pre_weeks, post_weeks, color_map
+        iri, promoted_brand, promo_weeks, pre_weeks, post_weeks, color_map, share_col=share_col
     )
     st.plotly_chart(fig_share_a, use_container_width=True)
     st.plotly_chart(fig_share_b, use_container_width=True)
@@ -418,24 +421,50 @@ with tabs[2]:
 # ─────────────────────────────────────────────────────────────────────────────
 with tabs[3]:
     st.subheader("Loyalty / Sourcing (LID)")
+
+    with st.expander("What do these segments mean?", expanded=False):
+        st.markdown("""
+**Brand Loyalists** — Shoppers who purchased this brand in the prior 12 weeks.
+Promo volume from loyalists typically represents pantry loading (buying earlier
+or more than usual) rather than true market growth.
+
+**Competitor Switchers** — Shoppers whose most recent category purchase was a
+competing brand. This is the most valuable source of promo volume — it represents
+genuine share capture.
+
+**Category Expanders** — Shoppers with no category purchase in the prior 26 weeks
+(new to category or lapsed buyers returning). This represents true demand creation
+and category growth.
+        """)
+
     if not kpis["has_lid"]:
         st.info("No loyalty sourcing data available for the promoted brand.")
     else:
         fig_lid_a, fig_lid_b = chart_lid_sourcing(pos, promoted_brand, promo_weeks, kpis)
         if fig_lid_a:
-            st.plotly_chart(fig_lid_a, use_container_width=True)
+            st.plotly_chart(fig_lid_a, use_container_width=True, key="lid_stacked")
+
+        # Metric cards row
+        mc1, mc2, mc3 = st.columns(3)
+        with mc1:
+            st.metric("Sourcing Quality", kpis["sourcing_label"])
+        with mc2:
+            if kpis["true_growth_pct"] is not None:
+                st.metric(
+                    "True Growth %",
+                    f"{kpis['true_growth_pct']:.0f}%",
+                    help="Switcher % + Expander % — share of promo volume from genuine new demand",
+                )
+        with mc3:
+            if kpis["avg_loyalist_pct"] is not None:
+                st.metric(
+                    "Pantry Loading Index",
+                    f"{kpis['pantry_loading_index']*100:.0f}%",
+                    help="Avg % of promo volume from existing brand loyalists",
+                )
+
         if fig_lid_b:
-            col_d, col_e = st.columns([1, 2])
-            with col_d:
-                st.plotly_chart(fig_lid_b, use_container_width=True)
-            with col_e:
-                st.metric("Sourcing Quality", kpis["sourcing_label"])
-                if kpis["true_growth_pct"] is not None:
-                    st.metric("True Growth %", f"{kpis['true_growth_pct']:.0f}%",
-                              help="Switcher % + Expander % — % of promo volume from genuine new demand")
-                if kpis["avg_loyalist_pct"] is not None:
-                    st.metric("Pantry Loading Index", f"{kpis['pantry_loading_index']*100:.0f}%",
-                              help="Avg % of promo volume from existing brand loyalists")
+            st.plotly_chart(fig_lid_b, use_container_width=True, key="lid_donut")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 5: Volume & Returns
@@ -456,6 +485,12 @@ with tabs[4]:
         "Post-Promo Deficit",
         f"{kpis['post_promo_deficit']:,.0f} units"
         + (" *(incomplete)*" if kpis["post_promo_incomplete"] else ""),
+        help=(
+            "Volume lost in post-promo weeks when sales dip below baseline. "
+            "Represents purchases pulled forward into the promo period — shoppers "
+            "stocked up during the deal and bought less afterward. Subtracted from "
+            "gross incremental to get net incremental volume."
+        ),
     )
     c3.metric("Net Incremental Volume", f"{kpis['net_incr_volume']:+,.0f} units")
 
