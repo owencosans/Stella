@@ -58,6 +58,15 @@ BASELINE_UNITS_PER_SKU = {
 # Total category ≈ 9,300 units/wk
 
 IRI_MULT = 5.5  # IRI total market ≈ 5.5× this retailer
+OTHER_MULT = IRI_MULT - 1.0  # Other retailers = 4.5× this retailer
+
+# Summit sustained lift at other retailers in late post-promo weeks (W13-16).
+# Models new converts continuing to buy Summit at OTHER stores after the promo.
+SUMMIT_OTHER_SPILLOVER = {
+    "strong_promo":   1.08,   # 8% — strong trial / word-of-mouth conversion
+    "pantry_loaded":  1.01,   # 1% — mostly loyal buyers loading; minimal new converts
+    "inventory_risk": 1.04,   # 4% — some trial despite poor execution
+}
 
 # Promo lift multipliers (promoted brand during promo weeks)
 PROMO_LIFT = {
@@ -191,7 +200,7 @@ def build_iri(scenario: str) -> pd.DataFrame:
         # Compute category totals
         cat_units = sum(brand_sku_units.values())
 
-        # Compute market shares (IRI_MULT cancels in the ratio, so computed at retailer scale)
+        # Compute this-retailer dollar sales (other-retailer contribution added below)
         sku_dollar = {}
         cat_dollars = 0.0
         for brand in ALL_BRANDS:
@@ -204,6 +213,34 @@ def build_iri(scenario: str) -> pd.DataFrame:
                 sku_dollar[(brand, sku)] = d
                 cat_dollars += d
 
+        # ── Other retailers (IRI full-market numerator + denominator) ──────────
+        # IRI covers the full market: this retailer + all other retailers.
+        # All brands sell at their baseline rate at other retailers; Summit gets a
+        # spillover multiplier in late post-promo (W13-16) modelling permanent
+        # brand conversion. Each brand's other-retailer volume is split equally
+        # across its SKUs so summing all SKUs gives the correct brand-level share.
+        brand_other_u_per_sku = {}
+        brand_other_d_per_sku = {}
+        cat_units_other   = 0.0
+        cat_dollars_other = 0.0
+        for brand in ALL_BRANDS:
+            n_skus = len(SKUS[brand])
+            base_brand_units = float(BASELINE_UNITS_PER_SKU[brand]) * n_skus
+            if (brand == PROMOTED_BRAND and phase == "post"
+                    and post_offset is not None and post_offset >= 5):
+                spillover = SUMMIT_OTHER_SPILLOVER[scenario]
+            else:
+                spillover = 1.0
+            brand_other_total_u = base_brand_units * OTHER_MULT * spillover
+            brand_other_total_d = brand_other_total_u * BASE_PRICE[brand]  # full price at other retailers
+            brand_other_u_per_sku[brand] = brand_other_total_u / n_skus
+            brand_other_d_per_sku[brand] = brand_other_total_d / n_skus
+            cat_units_other   += brand_other_total_u
+            cat_dollars_other += brand_other_total_d
+
+        cat_units_full   = cat_units   + cat_units_other
+        cat_dollars_full = cat_dollars + cat_dollars_other
+
         for brand in ALL_BRANDS:
             price = BASE_PRICE[brand]
             if phase == "promo" and brand == PROMOTED_BRAND:
@@ -211,8 +248,11 @@ def build_iri(scenario: str) -> pd.DataFrame:
             for sku in SKUS[brand]:
                 units = brand_sku_units[(brand, sku)]
                 d_sales = sku_dollar[(brand, sku)]
-                ms_d = d_sales / cat_dollars if cat_dollars > 0 else 0.0
-                ms_u = units / cat_units if cat_units > 0 else 0.0
+                # Full-market numerator: this sku's retailer sales + pro-rated other-retailer sales
+                sku_units_full   = units   + brand_other_u_per_sku[brand]
+                sku_dollars_full = d_sales + brand_other_d_per_sku[brand]
+                ms_d = sku_dollars_full / cat_dollars_full if cat_dollars_full > 0 else 0.0
+                ms_u = sku_units_full   / cat_units_full   if cat_units_full   > 0 else 0.0
 
                 if brand == PROMOTED_BRAND and phase == "promo":
                     tdp = round(float(noise(1)[0]) * 85 + 5)
