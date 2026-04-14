@@ -156,7 +156,7 @@ if not all_uploaded:
     ### How to use Stella
 
     1. **Prepare three Excel files** matching the required schemas (see README for column definitions)
-    2. **Upload IRI, POS, and STAR files** in the sidebar
+    2. **Upload IRI, POS, and STARS files** in the sidebar
     3. **Configure your product economics** and TPR amount
     4. **Adjust grading weights** to reflect your priorities
 
@@ -441,30 +441,31 @@ and category growth.
         st.info("No loyalty sourcing data available for the promoted brand.")
     else:
         fig_lid_a, fig_lid_b = chart_lid_sourcing(pos, promoted_brand, promo_weeks, kpis)
-        if fig_lid_a:
-            st.plotly_chart(fig_lid_a, use_container_width=True, key="lid_stacked")
 
-        # Metric cards row
-        mc1, mc2, mc3 = st.columns(3)
-        with mc1:
+        col_left, col_right = st.columns([2, 1])
+
+        with col_left:
+            if fig_lid_a:
+                fig_lid_a.update_layout(height=400)
+                st.plotly_chart(fig_lid_a, use_container_width=True, key="lid_stacked")
+
+        with col_right:
             st.metric("Sourcing Quality", kpis["sourcing_label"])
-        with mc2:
             if kpis["true_growth_pct"] is not None:
                 st.metric(
                     "True Growth %",
                     f"{kpis['true_growth_pct']:.0f}%",
                     help="Switcher % + Expander % — share of promo volume from genuine new demand",
                 )
-        with mc3:
             if kpis["avg_loyalist_pct"] is not None:
                 st.metric(
                     "Pantry Loading Index",
                     f"{kpis['pantry_loading_index']*100:.0f}%",
                     help="Avg % of promo volume from existing brand loyalists",
                 )
-
-        if fig_lid_b:
-            st.plotly_chart(fig_lid_b, use_container_width=True, key="lid_donut")
+            if fig_lid_b:
+                fig_lid_b.update_layout(height=400)
+                st.plotly_chart(fig_lid_b, use_container_width=True, key="lid_donut")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 5: Volume & Returns
@@ -537,7 +538,7 @@ with tabs[6]:
     with c1:
         fill = kpis["pipeline_fill"]
         c1.metric("Pipeline Fill Ratio", f"{fill:.2f}×",
-                  help="Total STAR units shipped / Total POS units sold")
+                  help="Total STARS units shipped / Total POS units sold")
     with c2:
         st.markdown(
             f'<div style="padding:14px 0">'
@@ -550,7 +551,7 @@ with tabs[6]:
     with c3:
         rr = kpis["returns_rate"] * 100
         c3.metric("Returns Rate", f"{rr:.1f}%",
-                  help="Total STAR returns / Total STAR shipped")
+                  help="Total STARS returns / Total STARS shipped")
 
     if kpis["under_shipped"]:
         st.warning(

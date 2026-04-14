@@ -279,7 +279,7 @@ def load_and_validate(iri_file, pos_file, stars_file) -> dict:
     critical += errs
     pos, errs = parse_dates(pos, "POS")
     critical += errs
-    stars, errs = parse_dates(stars, "STAR")
+    stars, errs = parse_dates(stars, "STARS")
     critical += errs
 
     if critical:
@@ -289,17 +289,17 @@ def load_and_validate(iri_file, pos_file, stars_file) -> dict:
     # ── Min weeks ──
     critical += check_min_weeks(iri, "IRI")
     critical += check_min_weeks(pos, "POS")
-    critical += check_min_weeks(stars, "STAR")
+    critical += check_min_weeks(stars, "STARS")
 
     # ── Duplicates ──
     critical += check_duplicates(iri, "IRI")
     critical += check_duplicates(pos, "POS")
-    critical += check_duplicates(stars, "STAR")
+    critical += check_duplicates(stars, "STARS")
 
     # ── Date continuity ──
     critical += check_date_continuity(iri, "IRI")
     critical += check_date_continuity(pos, "POS")
-    critical += check_date_continuity(stars, "STAR")
+    critical += check_date_continuity(stars, "STARS")
 
     if critical:
         result["critical_errors"] = critical
@@ -311,12 +311,12 @@ def load_and_validate(iri_file, pos_file, stars_file) -> dict:
     # Validate promoted brand exists in IRI and POS
     if promoted_brand not in iri["brand"].unique():
         critical.append(
-            f"**STAR brand '{promoted_brand}' not found in IRI data.** "
+            f"**STARS brand '{promoted_brand}' not found in IRI data.** "
             f"IRI brands: {list(iri['brand'].unique())}"
         )
     if promoted_brand not in pos["brand"].unique():
         critical.append(
-            f"**STAR brand '{promoted_brand}' not found in POS data.** "
+            f"**STARS brand '{promoted_brand}' not found in POS data.** "
             f"POS brands: {list(pos['brand'].unique())}"
         )
 
@@ -332,7 +332,7 @@ def load_and_validate(iri_file, pos_file, stars_file) -> dict:
     if iri_weeks != pos_weeks or iri_weeks != star_weeks:
         warnings.append(
             f"Date ranges differ across files. "
-            f"IRI: {len(iri_weeks)}, POS: {len(pos_weeks)}, STAR: {len(star_weeks)} weeks. "
+            f"IRI: {len(iri_weeks)}, POS: {len(pos_weeks)}, STARS: {len(star_weeks)} weeks. "
             f"Analyzing intersection of {len(common_weeks)} weeks."
         )
         iri = iri[iri["week_ending"].isin(common_weeks)]

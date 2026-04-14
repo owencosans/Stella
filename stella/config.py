@@ -94,83 +94,95 @@ def grade_from_score(score: float) -> str:
 
 
 def roi_score(roi: float) -> float:
-    """0–100. ROI >= 1.5 → 100; <= 0 → 0; linear between.
-    NOTE: The 1.5 top-end threshold is configurable — for shallow TPRs a 0.28 ROI
-    may be typical. Consider lowering to ~0.8 after seeing calibrated real data."""
-    if roi >= 1.5:
+    """
+    Industry reality: 72% of CPG promos are ROI-negative.
+    Breakeven is top-quartile. 20%+ return is exceptional.
+
+    ROI >= 0.20  → 100  (exceptional — well above cost of capital)
+    ROI =  0.06  → 70   (good — above typical WACC)
+    ROI =  0.00  → 55   (breakeven — better than ~72% of promos)
+    ROI = -0.15  → 25   (typical underperformer)
+    ROI <= -0.30 → 0    (clear value destruction)
+    """
+    if roi >= 0.20:
         return 100.0
-    elif roi <= 0:
-        return 0.0
+    elif roi >= 0.0:
+        return 55.0 + (roi / 0.20) * 45.0
+    elif roi >= -0.30:
+        return (roi + 0.30) / 0.30 * 55.0
     else:
-        return (roi / 1.5) * 100.0
-
-
-def share_score(share_gain_pp: float, share_retention: float | None) -> float:
-    """
-    0–100. Share gain >= 2pp → 100; <= 0 → 0; linear.
-
-    Retention adjusts the base score:
-      - None (no post-promo data): multiply by 0.5
-      - >= 0 (share held at or above baseline after promo): no penalty — returning
-        to baseline is a healthy TPR outcome, not a failure
-      - < 0 (share dropped below baseline post-promo): apply penalty
-        score = base × max(0, 1 + retention)
-
-    This prevents the score from collapsing to 0 when a promotion does its job
-    (lifts share temporarily) but doesn't permanently move the needle.
-    """
-    if share_gain_pp <= 0:
         return 0.0
-    base = min(share_gain_pp / 2.0, 1.0) * 100.0
+
+
+def share_score(share_change_pp: float, share_retention: float | None) -> float:
+    """
+    Realistic share gains from a single-retailer TPR measured in
+    total market (IRI): 0.5–3 pp is the realistic range.
+
+    Share gain >= 1.5 pp → 100 (strong competitive capture)
+    Share gain =  0.5 pp → 33  (modest but real)
+    Share gain <= 0      → 0   (promo failed to move share)
+
+    Multiply by share retention to reward durability.
+    """
+    if share_change_pp <= 0:
+        return 0.0
+    base = min(share_change_pp / 1.5, 1.0) * 100.0
     if share_retention is None:
         return base * 0.5
-    elif share_retention >= 0.0:
-        return base  # full credit; share held at or above baseline
-    else:
-        return base * max(0.0, 1.0 + share_retention)
+    return base * min(max(share_retention, 0.0), 1.0)
 
 
 def volume_score(net_incr_pct: float, pantry_loading_index: float) -> float:
     """
-    Net incremental as % of baseline-window total. >= 20% → 100; <= 0 → 0; linear.
-    If pantry loading index > 55%, multiply by 0.8.
+    net_incr_pct = Net Incremental Volume / (baseline_weekly × promo_weeks) × 100
+
+    Net incr >= 80%  → 100
+    Net incr =  40%  → 50
+    Net incr <= 0%   → 0
+    Linear between.
+
+    Pantry loading penalty: if > 55% loyalist, multiply score by 0.8.
     """
-    if net_incr_pct >= 20.0:
-        raw = 100.0
-    elif net_incr_pct <= 0:
+    if net_incr_pct <= 0:
         raw = 0.0
+    elif net_incr_pct >= 80:
+        raw = 100.0
     else:
-        raw = (net_incr_pct / 20.0) * 100.0
+        raw = (net_incr_pct / 80.0) * 100.0
 
     if pantry_loading_index > 0.55:
         raw *= 0.8
-    return raw
+
+    return min(raw, 100.0)
 
 
 def inventory_health_score(pipeline_fill: float, inventory_risk: str) -> float:
     """
-    Pipeline fill scoring:
-      1.00–1.05 → 100
-      1.05–1.10 → 80
-      1.10–1.15 → 50
-      1.15–1.20 → 25
-      > 1.20    → 0
-    Deduct 20 if risk = High.
+    Pipeline fill around a promo: some pre-loading is normal.
+    Fill 0.90–1.08 → 100  (healthy — includes slight under/over)
+    Fill 1.08–1.15 → linear 100 → 50
+    Fill 1.15–1.25 → linear 50 → 0
+    Fill > 1.25    → 0
+    Fill < 0.85    → 60   (under-shipped — stockout risk)
+
+    Deduct 15 if inventory risk = "High".
     """
-    if pipeline_fill <= 1.05:
-        score = 100.0
-    elif pipeline_fill <= 1.10:
-        score = 80.0
+    if pipeline_fill < 0.85:
+        raw = 60.0
+    elif pipeline_fill <= 1.08:
+        raw = 100.0
     elif pipeline_fill <= 1.15:
-        score = 50.0
-    elif pipeline_fill <= 1.20:
-        score = 25.0
+        raw = 100.0 - (pipeline_fill - 1.08) / 0.07 * 50.0
+    elif pipeline_fill <= 1.25:
+        raw = 50.0 - (pipeline_fill - 1.15) / 0.10 * 50.0
     else:
-        score = 0.0
+        raw = 0.0
 
     if inventory_risk == "High":
-        score = max(0.0, score - 20.0)
-    return score
+        raw = max(0.0, raw - 15.0)
+
+    return raw
 
 
 # ─── Inventory Risk Thresholds ─────────────────────────────────────────────────
@@ -255,17 +267,17 @@ def compute_recommendation(
             "Sourcing quality and volume lift support re-execution.",
             "Monitor ROI and adjust TPR depth as more data accumulates.",
         ]
-    elif grade in ("A", "B") and inventory_risk in ("Moderate", "High"):
-        primary = "Repeat only with tighter inventory controls."
-        rationale = [
-            "Promo economics are acceptable but pipeline management needs guardrails.",
-            "Consider capping pre-load or shortening duration.",
-        ]
     elif grade == "B" and sourcing_label == "Pantry-Loaded":
         primary = "Repeat only with tighter funding guardrails."
         rationale = [
             "Volume responded but most lift is existing buyers buying early.",
             "Test a shallower discount to see if response holds.",
+        ]
+    elif grade in ("A", "B") and inventory_risk in ("Moderate", "High"):
+        primary = "Repeat only with tighter inventory controls."
+        rationale = [
+            "Promo economics are acceptable but pipeline management needs guardrails.",
+            "Consider capping pre-load or shortening duration.",
         ]
     elif grade == "B" and margin_delta < 0:
         primary = "Test a shallower discount."

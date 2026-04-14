@@ -317,18 +317,18 @@ def chart_volume_returns(
         go.Bar(
             x=pb_stars["week_ending"],
             y=pb_stars["returns_units"],
-            name="STAR Returns",
+            name="STARS Returns",
             marker_color="rgba(229,57,53,0.5)",
         ),
         secondary_y=True,
     )
     fig_a.update_layout(
         shapes=period_shapes(promo_weeks),
-        title=f"{promoted_brand} — POS Volume vs. STAR Returns",
+        title=f"{promoted_brand} — POS Volume vs. STARS Returns",
         **LAYOUT_DEFAULTS,
     )
     fig_a.update_yaxes(title_text="Units Sold (POS)", secondary_y=False)
-    fig_a.update_yaxes(title_text="Returns (STAR)", secondary_y=True)
+    fig_a.update_yaxes(title_text="Returns (STARS)", secondary_y=True)
 
     # Chart B: Weekly incremental vs baseline
     merged = pb_pos.copy()
@@ -475,7 +475,7 @@ def chart_shipments_vs_pull(
     fig_a.add_trace(go.Scatter(
         x=merged["week_ending"],
         y=merged["units_shipped"],
-        name="STAR Units Shipped",
+        name="STARS Units Shipped",
         line=dict(color="#FB8C00", width=2.5),
         mode="lines+markers",
     ))
@@ -499,7 +499,7 @@ def chart_shipments_vs_pull(
     ))
     fig_a.update_layout(
         shapes=period_shapes(promo_weeks),
-        title=f"{promoted_brand} — STAR Shipments vs. POS Pull-Through",
+        title=f"{promoted_brand} — STARS Shipments vs. POS Pull-Through",
         yaxis_title="Units",
         xaxis_title="Week Ending",
         **LAYOUT_DEFAULTS,
@@ -517,7 +517,7 @@ def chart_shipments_vs_pull(
     ))
     fig_b.update_layout(
         shapes=period_shapes(promo_weeks),
-        title=f"{promoted_brand} — Estimated Retail On-Hand (STAR)",
+        title=f"{promoted_brand} — Estimated Retail On-Hand (STARS)",
         yaxis_title="Units",
         xaxis_title="Week Ending",
         **LAYOUT_DEFAULTS,

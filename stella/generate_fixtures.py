@@ -2,7 +2,7 @@
 generate_fixtures.py
 
 Generates synthetic Excel test fixtures for the Stella post-promotion analysis app.
-Produces 3 scenario folders × 3 files = 9 Excel files total.
+5-brand toothpaste market. 3 scenarios × 3 files = 9 Excel files total.
 """
 
 import os
@@ -28,31 +28,117 @@ PROMO_WEEKS = list(range(5, 9))   # 5-8
 POST_WEEKS  = list(range(9, 17))  # 9-16
 
 PROMOTED_BRAND = "Summit Foods"
-COMPETITORS    = ["RiverBrand", "CrestLine"]
+COMPETITORS    = ["PearlCare", "CleanPro", "DailyShine", "SmartChoice"]
 ALL_BRANDS     = [PROMOTED_BRAND] + COMPETITORS
 
 SKUS = {
-    "Summit Foods": ["SF-Original 12ct", "SF-Variety 12ct"],
-    "RiverBrand":   ["RB-Classic 12ct"],
-    "CrestLine":    ["CL-Premium 12ct"],
+    "Summit Foods": ["SF-Whitening 6oz", "SF-Sensitivity 4oz", "SF-Complete 6oz"],
+    "PearlCare":    ["PC-Deep Clean 6oz", "PC-Gentle 4oz", "PC-Total 6oz"],
+    "CleanPro":     ["CP-Fresh 6oz", "CP-Cavity Shield 4oz", "CP-Mint Blast 6oz"],
+    "DailyShine":   ["DS-Original 6oz", "DS-Whitening 4oz", "DS-Cool Mint 6oz"],
+    "SmartChoice":  ["SC-Basic Clean 6oz", "SC-Whitening 4oz", "SC-Fresh 6oz"],
 }
 
-# Baseline prices
 BASE_PRICE = {
-    "Summit Foods": 6.25,
-    "RiverBrand":   6.00,
-    "CrestLine":    6.50,
+    "Summit Foods": 6.29,   # Premium
+    "PearlCare":    6.49,   # Premium
+    "CleanPro":     4.29,   # Mainstream
+    "DailyShine":   4.09,   # Mainstream
+    "SmartChoice":  2.79,   # Value/PL
 }
 
-# IRI market multiplier (~6× retailer)
-IRI_MULT = 6.0
+# Baseline POS units/SKU/week
+BASELINE_UNITS_PER_SKU = {
+    "Summit Foods": 500,    # 3 SKUs × 500 = 1,500 units/wk
+    "PearlCare":    450,    # 3 × 450 = 1,350
+    "CleanPro":     700,    # 3 × 700 = 2,100
+    "DailyShine":   650,    # 3 × 650 = 1,950
+    "SmartChoice":  800,    # 3 × 800 = 2,400
+}
+# Total category ≈ 9,300 units/wk
+
+IRI_MULT = 5.5  # IRI total market ≈ 5.5× this retailer
+
+# Promo lift multipliers (promoted brand during promo weeks)
+PROMO_LIFT = {
+    "strong_promo":   2.4,
+    "pantry_loaded":  2.2,
+    "inventory_risk": 2.0,
+}
+
+# Competitor impact during promo (multiplier vs. baseline)
+COMP_PROMO_MULT = {
+    "strong_promo":   {"PearlCare": 0.88, "CleanPro": 0.95, "DailyShine": 0.96, "SmartChoice": 0.99},
+    "pantry_loaded":  {"PearlCare": 0.95, "CleanPro": 0.98, "DailyShine": 0.98, "SmartChoice": 1.00},
+    "inventory_risk": {"PearlCare": 0.90, "CleanPro": 0.96, "DailyShine": 0.97, "SmartChoice": 0.99},
+}
+
+# Post-promo recovery factors for promoted brand (W9=offset1 .. W16=offset8).
+# Calibrated so that scenario ROI and volume score produce correct A/B/C grades:
+#   strong_promo: mild dip, fast recovery → large net incr, high ROI (A)
+#   pantry_loaded: moderate dip, slow recovery → pantry hangover but positive ROI (B)
+#   inventory_risk: moderate POS dip (demand recovers OK), but BAD inventory → C via inv score=0
+POST_FACTORS = {
+    "strong_promo":   {1: 0.82, 2: 0.85, 3: 0.90, 4: 0.95, 5: 1.00, 6: 1.02, 7: 1.03, 8: 1.03},
+    "pantry_loaded":  {1: 0.77, 2: 0.80, 3: 0.84, 4: 0.87, 5: 0.90, 6: 0.93, 7: 0.96, 8: 1.00},
+    "inventory_risk": {1: 0.80, 2: 0.82, 3: 0.84, 4: 0.86, 5: 0.90, 6: 0.93, 7: 0.95, 8: 1.00},
+}
+
+# Competitor post-promo: strong_promo PearlCare loses some share permanently
+COMP_POST_MULT = {
+    "strong_promo":   {"PearlCare": {1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0, 5: 0.96, 6: 0.96, 7: 0.96, 8: 0.96},
+                       "CleanPro":  {i: 1.0 for i in range(1, 9)},
+                       "DailyShine":{i: 1.0 for i in range(1, 9)},
+                       "SmartChoice":{i: 1.0 for i in range(1, 9)}},
+    "pantry_loaded":  {b: {i: 1.0 for i in range(1, 9)} for b in COMPETITORS},
+    "inventory_risk": {b: {i: 1.0 for i in range(1, 9)} for b in COMPETITORS},
+}
+
+# LID sourcing (promo weeks)
+LID_PROMO = {
+    "strong_promo":   (0.47, 0.33, 0.20),
+    "pantry_loaded":  (0.65, 0.22, 0.13),
+    "inventory_risk": (0.50, 0.30, 0.20),
+}
+LID_PRE = (0.70, 0.18, 0.12)
+LID_POST = {
+    "strong_promo":   (0.60, 0.25, 0.15),
+    "pantry_loaded":  (0.75, 0.15, 0.10),
+    "inventory_risk": (0.62, 0.23, 0.15),
+}
+
+# STARS shipment multipliers vs. baseline cases.
+# Calibrated so:
+#   - Pipeline fill lands in target range (strong ~1.05-1.08, pantry ~1.08-1.12, inventory ~1.22-1.28)
+#   - Pre-load multiplier for strong_promo is modest (1.3×) so it doesn't inflate the
+#     pre-period baseline_weekly_shipped, which would otherwise make W9-10 dips
+#     look like a shipment collapse and incorrectly flag Moderate inventory risk.
+STARS_MULT = {
+    "strong_promo":   {1: 1.0, 2: 1.0, 3: 1.3, 4: 1.3, 5: 2.6, 6: 2.6, 7: 2.6, 8: 2.6,
+                       9: 0.85, 10: 0.85, 11: 0.90, 12: 0.90, 13: 1.0, 14: 1.0, 15: 1.0, 16: 1.0},
+    "pantry_loaded":  {1: 1.0, 2: 1.0, 3: 2.1, 4: 2.1, 5: 2.1, 6: 2.1, 7: 2.1, 8: 2.1,
+                       9: 0.70, 10: 0.70, 11: 0.80, 12: 0.80, 13: 0.95, 14: 0.95, 15: 0.95, 16: 0.95},
+    "inventory_risk": {1: 1.0, 2: 1.0, 3: 4.5, 4: 4.5, 5: 2.2, 6: 2.2, 7: 2.2, 8: 2.2,
+                       9: 0.30, 10: 0.30, 11: 0.40, 12: 0.40, 13: 0.65, 14: 0.65, 15: 0.65, 16: 0.65},
+}
+
+# Returns rates
+RETURNS_RATE = {
+    "strong_promo":   0.015,
+    "pantry_loaded":  0.020,
+    "inventory_risk": 0.045,
+}
+
+UNITS_PER_CASE = 12
+TPR_PER_UNIT = 1.25
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def noise(shape, pct=0.04):
-    """Return multiplicative noise array centred at 1.0 ± pct."""
+    """Multiplicative noise centred at 1.0 ± pct."""
     return 1.0 + RNG.uniform(-pct, pct, size=shape)
 
 
@@ -60,132 +146,92 @@ def week_to_date(w):
     return WEEK_ENDINGS[w - 1]
 
 
+def normalize_lid(loyalist, switcher, expander):
+    total = loyalist + switcher + expander
+    l = round(loyalist / total, 4)
+    s = round(switcher / total, 4)
+    e = round(1.0 - l - s, 4)
+    return l, s, e
+
+
 # ---------------------------------------------------------------------------
 # IRI data builder
 # ---------------------------------------------------------------------------
 
 def build_iri(scenario: str) -> pd.DataFrame:
-    """Build IRI rows for all brands, all SKUs, all 16 weeks."""
     rows = []
 
     for w in WEEKS:
         date = week_to_date(w)
         phase = ("pre" if w in PRE_WEEKS else
                  "promo" if w in PROMO_WEEKS else "post")
+        post_offset = w - 8 if phase == "post" else None
 
         # --- Determine per-SKU unit sales for each brand ---
-        brand_units = {}  # brand -> {sku: units}
-
+        brand_sku_units = {}
         for brand in ALL_BRANDS:
-            brand_units[brand] = {}
+            base = float(BASELINE_UNITS_PER_SKU[brand])
             for sku in SKUS[brand]:
-                # Baseline: Summit ~400/SKU/week, RiverBrand ~450, CrestLine ~350
-                if brand == "Summit Foods":
-                    base = 400.0
-                elif brand == "RiverBrand":
-                    base = 450.0
-                else:
-                    base = 350.0
-
                 if phase == "pre":
                     mult = 1.0
-
                 elif phase == "promo":
-                    if brand == "Summit Foods":
-                        if scenario == "strong_promo":
-                            mult = 2.4
-                        elif scenario == "pantry_loaded":
-                            mult = 2.2
-                        else:  # inventory_risk
-                            mult = 2.0
-                    elif brand == "RiverBrand":
-                        if scenario == "strong_promo":
-                            mult = 0.88
-                        elif scenario == "pantry_loaded":
-                            mult = 0.98
-                        else:
-                            mult = 0.95
-                    else:  # CrestLine
-                        if scenario == "strong_promo":
-                            mult = 0.94
-                        elif scenario == "pantry_loaded":
-                            mult = 0.98
-                        else:
-                            mult = 0.95
-
-                else:  # post
-                    if brand == "Summit Foods":
-                        post_offset = w - 8  # 1..8
-                        if scenario == "strong_promo":
-                            # Early post: typical pantry payback dip.
-                            # Late post: slightly above baseline — switchers who stayed loyal.
-                            factors = {1: 0.85, 2: 0.85, 3: 0.90, 4: 0.95,
-                                       5: 1.05, 6: 1.05, 7: 1.05, 8: 1.05}
-                        elif scenario == "pantry_loaded":
-                            factors = {1: 0.68, 2: 0.68, 3: 0.68, 4: 0.68,
-                                       5: 0.80, 6: 0.80, 7: 0.90, 8: 0.90}
-                        else:  # inventory_risk
-                            factors = {1: 0.80, 2: 0.80, 3: 0.80, 4: 0.80,
-                                       5: 0.80, 6: 0.80, 7: 0.80, 8: 0.80}
-                        mult = factors[post_offset]
+                    if brand == PROMOTED_BRAND:
+                        mult = PROMO_LIFT[scenario]
                     else:
-                        # Competitors: for strong_promo, some buyers permanently switched
-                        # to Summit in late post — show modest persistent share loss.
-                        if scenario == "strong_promo":
-                            post_offset = w - 8
-                            comp_mult = 0.94 if post_offset >= 5 else 1.0
-                        else:
-                            comp_mult = 1.0
-                        mult = comp_mult
+                        mult = COMP_PROMO_MULT[scenario][brand]
+                else:  # post
+                    if brand == PROMOTED_BRAND:
+                        mult = POST_FACTORS[scenario][post_offset]
+                    else:
+                        mult = COMP_POST_MULT[scenario][brand][post_offset]
 
                 units = base * mult * float(noise(1)[0])
-                brand_units[brand][sku] = units
+                brand_sku_units[(brand, sku)] = units
 
-        # Compute category total for market share
-        cat_units  = sum(u for bskus in brand_units.values() for u in bskus.values())
-        # Dollar totals per sku
+        # Compute category totals
+        cat_units = sum(brand_sku_units.values())
+
+        sku_dollar = {}
         cat_dollars = 0.0
-        sku_dollars = {}
         for brand in ALL_BRANDS:
+            price = BASE_PRICE[brand]
+            if phase == "promo" and brand == PROMOTED_BRAND:
+                price -= TPR_PER_UNIT
             for sku in SKUS[brand]:
-                price = BASE_PRICE[brand]
-                if phase == "promo" and brand == "Summit Foods":
-                    price -= 1.25
-                d = brand_units[brand][sku] * price * IRI_MULT
-                sku_dollars[(brand, sku)] = d
+                u = brand_sku_units[(brand, sku)]
+                d = u * price * IRI_MULT
+                sku_dollar[(brand, sku)] = d
                 cat_dollars += d
 
         for brand in ALL_BRANDS:
+            price = BASE_PRICE[brand]
+            if phase == "promo" and brand == PROMOTED_BRAND:
+                price -= TPR_PER_UNIT
             for sku in SKUS[brand]:
-                price = BASE_PRICE[brand]
-                if phase == "promo" and brand == "Summit Foods":
-                    price -= 1.25
+                units = brand_sku_units[(brand, sku)]
+                d_sales = sku_dollar[(brand, sku)]
+                ms_d = d_sales / cat_dollars if cat_dollars > 0 else 0.0
+                ms_u = units / cat_units if cat_units > 0 else 0.0
 
-                units  = brand_units[brand][sku]
-                d_sales = sku_dollars[(brand, sku)]
-                ms_d    = d_sales / cat_dollars if cat_dollars > 0 else 0.0
-                ms_u    = units / cat_units if cat_units > 0 else 0.0
-
-                # TDP: Summit goes up during promo
-                if brand == "Summit Foods" and phase == "promo":
+                if brand == PROMOTED_BRAND and phase == "promo":
                     tdp = round(float(noise(1)[0]) * 85 + 5)
                 else:
                     tdp = round(float(noise(1)[0]) * 60 + 30)
                 tdp = max(1, min(100, tdp))
 
-                any_promo = 1 if (brand == "Summit Foods" and phase == "promo") else 0
+                any_promo = 1 if (brand == PROMOTED_BRAND and phase == "promo") else 0
 
                 rows.append({
-                    "week_ending":           date,
-                    "brand":                 brand,
-                    "sku":                   sku,
-                    "dollar_sales":          round(d_sales, 2),
-                    "unit_sales":            round(units, 1),
-                    "avg_net_price":         round(price, 2),
-                    "market_share_dollars":  round(ms_d, 4),
-                    "market_share_units":    round(ms_u, 4),
-                    "tdp":                   tdp,
-                    "any_promo_flag":        any_promo,
+                    "week_ending":          date,
+                    "brand":                brand,
+                    "sku":                  sku,
+                    "dollar_sales":         round(d_sales, 2),
+                    "unit_sales":           round(units * IRI_MULT, 1),
+                    "avg_net_price":        round(price, 2),
+                    "market_share_dollars": round(ms_d, 4),
+                    "market_share_units":   round(ms_u, 4),
+                    "tdp":                  tdp,
+                    "any_promo_flag":       any_promo,
                 })
 
     return pd.DataFrame(rows)
@@ -202,89 +248,43 @@ def build_pos(scenario: str) -> pd.DataFrame:
         date = week_to_date(w)
         phase = ("pre" if w in PRE_WEEKS else
                  "promo" if w in PROMO_WEEKS else "post")
+        post_offset = w - 8 if phase == "post" else None
 
         for brand in ALL_BRANDS:
+            base_units = float(BASELINE_UNITS_PER_SKU[brand])
             for sku in SKUS[brand]:
-                # Baseline
-                if brand == "Summit Foods":
-                    base_units = 400.0
-                elif brand == "RiverBrand":
-                    base_units = 450.0
-                else:
-                    base_units = 350.0
-
                 price = BASE_PRICE[brand]
 
                 if phase == "pre":
                     unit_mult = 1.0
                 elif phase == "promo":
-                    if brand == "Summit Foods":
-                        unit_mult = (2.4 if scenario == "strong_promo" else
-                                     2.2 if scenario == "pantry_loaded" else 2.0)
-                        price -= 1.25
-                    elif brand == "RiverBrand":
-                        unit_mult = (0.88 if scenario == "strong_promo" else
-                                     0.98 if scenario == "pantry_loaded" else 0.95)
+                    if brand == PROMOTED_BRAND:
+                        unit_mult = PROMO_LIFT[scenario]
+                        price -= TPR_PER_UNIT
                     else:
-                        unit_mult = (0.94 if scenario == "strong_promo" else
-                                     0.98 if scenario == "pantry_loaded" else 0.95)
+                        unit_mult = COMP_PROMO_MULT[scenario][brand]
                 else:  # post
-                    if brand == "Summit Foods":
-                        post_offset = w - 8
-                        if scenario == "strong_promo":
-                            # Late post above baseline: retained switchers buy again.
-                            factors = {1: 0.85, 2: 0.85, 3: 0.90, 4: 0.95,
-                                       5: 1.05, 6: 1.05, 7: 1.05, 8: 1.05}
-                        elif scenario == "pantry_loaded":
-                            factors = {1: 0.68, 2: 0.68, 3: 0.68, 4: 0.68,
-                                       5: 0.80, 6: 0.80, 7: 0.90, 8: 0.90}
-                        else:
-                            factors = {1: 0.80, 2: 0.80, 3: 0.80, 4: 0.80,
-                                       5: 0.80, 6: 0.80, 7: 0.80, 8: 0.80}
-                        unit_mult = factors[post_offset]
+                    if brand == PROMOTED_BRAND:
+                        unit_mult = POST_FACTORS[scenario][post_offset]
                     else:
-                        unit_mult = 1.0
+                        unit_mult = COMP_POST_MULT[scenario][brand][post_offset]
 
                 units = base_units * unit_mult * float(noise(1)[0])
                 dollars = units * price
 
-                # scan_deal_dollars: only SF during promo
-                if brand == "Summit Foods" and phase == "promo":
-                    scan_deal = 1.25 * units
-                else:
-                    scan_deal = 0.0
+                scan_deal = TPR_PER_UNIT * units if (brand == PROMOTED_BRAND and phase == "promo") else 0.0
 
-                # loyalty columns: only Summit Foods
-                if brand == "Summit Foods":
-                    post_offset = w - 8 if phase == "post" else None
+                # LID columns: only Summit Foods
+                if brand == PROMOTED_BRAND:
                     if phase == "pre":
-                        loyalist, switcher, expander = 0.55, 0.28, 0.17
+                        l, s, e = normalize_lid(*LID_PRE)
                     elif phase == "promo":
-                        if scenario == "strong_promo":
-                            loyalist, switcher, expander = 0.47, 0.33, 0.20
-                        elif scenario == "pantry_loaded":
-                            loyalist, switcher, expander = 0.65, 0.22, 0.13
-                        else:
-                            loyalist, switcher, expander = 0.50, 0.30, 0.20
-                    else:  # post
-                        if scenario == "strong_promo":
-                            loyalist, switcher, expander = 0.55, 0.28, 0.17
-                        elif scenario == "pantry_loaded":
-                            # slowly recovers
-                            if post_offset <= 4:
-                                loyalist, switcher, expander = 0.60, 0.24, 0.16
-                            else:
-                                loyalist, switcher, expander = 0.58, 0.25, 0.17
-                        else:
-                            loyalist, switcher, expander = 0.55, 0.28, 0.17
-                    # Normalise to exactly 1.0
-                    total = loyalist + switcher + expander
-                    loyalist /= total
-                    switcher /= total
-                    expander /= total
-                    loy_col = round(loyalist, 4)
-                    swi_col = round(switcher, 4)
-                    exp_col = round(1.0 - loy_col - swi_col, 4)  # ensure sum = 1
+                        l, s, e = normalize_lid(*LID_PROMO[scenario])
+                    else:
+                        l, s, e = normalize_lid(*LID_POST[scenario])
+                    loy_col = l
+                    swi_col = s
+                    exp_col = e
                 else:
                     loy_col = None
                     swi_col = None
@@ -307,130 +307,54 @@ def build_pos(scenario: str) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# STAR data builder  (Summit Foods only)
+# STARS data builder (Summit Foods only)
 # ---------------------------------------------------------------------------
 
 def build_stars(scenario: str) -> pd.DataFrame:
     rows = []
-    UNITS_PER_CASE = 12
 
-    # Baseline POS units/week per SKU for Summit Foods
-    base_pos = 400.0
-    # baseline cases shipped ~ (base_pos * 1.02) / 12
-    base_cases = (base_pos * 1.02) / UNITS_PER_CASE
+    # Baseline cases shipped ≈ baseline POS units per SKU × 1.02 / units_per_case
+    base_pos_per_sku = float(BASELINE_UNITS_PER_SKU[PROMOTED_BRAND])
+    base_cases = (base_pos_per_sku * 1.02) / UNITS_PER_CASE
+    ret_pct = RETURNS_RATE[scenario]
 
-    # Running retail on-hand (carry across weeks)
-    retail_oh = 2000.0
+    # Per-SKU on-hand tracking
+    sku_oh = {sku: base_pos_per_sku * 2.0 for sku in SKUS[PROMOTED_BRAND]}
 
+    # Determine sell-through per SKU per week (consistent with POS)
     for w in WEEKS:
         date = week_to_date(w)
         phase = ("pre" if w in PRE_WEEKS else
                  "promo" if w in PROMO_WEEKS else "post")
+        post_offset = w - 8 if phase == "post" else None
 
-        for sku in SKUS["Summit Foods"]:
-            # ----- POS sell-through this week -----
-            if phase == "pre":
-                pos_mult = 1.0
-            elif phase == "promo":
-                pos_mult = (2.4 if scenario == "strong_promo" else
-                            2.2 if scenario == "pantry_loaded" else 2.0)
-            else:
-                post_offset = w - 8
-                if scenario == "strong_promo":
-                    fm = {1: 0.85, 2: 0.85, 3: 0.90, 4: 0.95,
-                          5: 1.05, 6: 1.05, 7: 1.05, 8: 1.05}
-                elif scenario == "pantry_loaded":
-                    fm = {1: 0.68, 2: 0.68, 3: 0.68, 4: 0.68,
-                          5: 0.80, 6: 0.80, 7: 0.90, 8: 0.90}
-                else:
-                    fm = {1: 0.80, 2: 0.80, 3: 0.80, 4: 0.80,
-                          5: 0.80, 6: 0.80, 7: 0.80, 8: 0.80}
-                pos_mult = fm[post_offset]
+        if phase == "pre":
+            pos_mult = 1.0
+        elif phase == "promo":
+            pos_mult = PROMO_LIFT[scenario]
+        else:
+            pos_mult = POST_FACTORS[scenario][post_offset]
 
-            pos_units = base_pos * pos_mult * float(noise(1)[0])
+        cases_mult = STARS_MULT[scenario][w]
 
-            # ----- Cases shipped -----
-            if scenario == "strong_promo":
-                if w in [1, 2]:
-                    cases_mult = 1.02
-                elif w in [3, 4]:   # pre-load
-                    cases_mult = 1.8
-                elif phase == "promo":
-                    cases_mult = 1.1
-                elif phase == "post":
-                    cases_mult = 1.0
-                else:
-                    cases_mult = 1.02
-
-            elif scenario == "pantry_loaded":
-                if w in [1, 2]:
-                    cases_mult = 1.02
-                elif w in [3, 4]:
-                    cases_mult = 1.09
-                elif phase == "promo":
-                    cases_mult = 1.05
-                elif phase == "post":
-                    post_offset = w - 8
-                    if post_offset <= 3:
-                        cases_mult = 0.75
-                    else:
-                        cases_mult = 0.95
-                else:
-                    cases_mult = 1.02
-
-            else:  # inventory_risk
-                if w in [1, 2]:
-                    cases_mult = 1.02
-                elif w in [3, 4]:   # MASSIVE pre-load
-                    cases_mult = 4.0
-                elif phase == "promo":
-                    cases_mult = 2.0
-                elif phase == "post":
-                    post_offset = w - 8
-                    if post_offset <= 4:
-                        cases_mult = 0.30
-                    else:
-                        cases_mult = 0.70
-                else:
-                    cases_mult = 1.02
-
-            cases_shipped = base_cases * cases_mult * float(noise(1)[0])
-            cases_shipped = max(0.0, cases_shipped)
-            units_shipped  = cases_shipped * UNITS_PER_CASE
-
-            # ----- Returns -----
-            if scenario == "inventory_risk":
-                ret_pct = 0.05
-            elif scenario == "pantry_loaded":
-                ret_pct = 0.02
-            else:
-                ret_pct = 0.015
+        for sku in SKUS[PROMOTED_BRAND]:
+            pos_units = base_pos_per_sku * pos_mult * float(noise(1)[0])
+            cases_shipped = max(0.0, base_cases * cases_mult * float(noise(1)[0]))
+            units_shipped = cases_shipped * UNITS_PER_CASE
             returns_units = units_shipped * ret_pct * float(noise(1, pct=0.02)[0])
 
-            # ----- Estimated retail on-hand -----
-            # Δ = shipped - sold - returns
-            net_shipped = units_shipped - returns_units
-            retail_oh = retail_oh + net_shipped - pos_units
-            # Clamp to scenario-specific floor
-            if scenario == "inventory_risk":
-                floor = 1000.0
-            else:
-                floor = 200.0
-            retail_oh = max(floor, retail_oh)
-
-            # Cap to scenario ceiling in post for inventory_risk
-            if scenario == "inventory_risk" and phase in ["promo", "post"]:
-                retail_oh = max(retail_oh, 3000.0)
+            # Accumulate on-hand: prior + shipped - sold - returns
+            sku_oh[sku] = max(100.0, sku_oh[sku] + units_shipped - pos_units - returns_units)
 
             rows.append({
-                "week_ending":              date,
-                "brand":                    "Summit Foods",
-                "sku":                      sku,
-                "cases_shipped":            round(cases_shipped, 2),
-                "units_per_case":           UNITS_PER_CASE,
-                "units_shipped":            round(units_shipped, 2),
-                "returns_units":            round(returns_units, 2),
-                "estimated_retail_on_hand": round(retail_oh, 1),
+                "week_ending":               date,
+                "brand":                     PROMOTED_BRAND,
+                "sku":                       sku,
+                "cases_shipped":             round(cases_shipped, 2),
+                "units_per_case":            UNITS_PER_CASE,
+                "units_shipped":             round(units_shipped, 2),
+                "returns_units":             round(returns_units, 2),
+                "estimated_retail_on_hand":  round(sku_oh[sku], 1),
             })
 
     return pd.DataFrame(rows)
@@ -449,6 +373,18 @@ def write_excel(df: pd.DataFrame, path: Path):
 
 
 # ---------------------------------------------------------------------------
+# Pipeline fill diagnostic
+# ---------------------------------------------------------------------------
+
+def check_pipeline_fill(stars: pd.DataFrame, pos: pd.DataFrame, scenario: str):
+    total_shipped = stars["units_shipped"].sum()
+    total_sold = pos[pos["brand"] == PROMOTED_BRAND]["pos_unit_sales"].sum()
+    fill = total_shipped / total_sold if total_sold > 0 else 0.0
+    print(f"  Pipeline fill ({scenario}): {fill:.3f}×  "
+          f"[target: strong~1.06, pantry~1.10, inventory~1.24]")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -460,6 +396,8 @@ def main():
         iri   = build_iri(scenario)
         pos   = build_pos(scenario)
         stars = build_stars(scenario)
+
+        check_pipeline_fill(stars, pos, scenario)
 
         write_excel(iri,   out_dir / "iri_data.xlsx")
         write_excel(pos,   out_dir / "pos_data.xlsx")
